@@ -1,4 +1,6 @@
 import pandas as pd
+import warnings
+warnings.filterwarnings('ignore')   # suppress FutureWarning from dowhy/pandas
 from src.data.make_dataset import load_and_preprocess_adult
 from src.models.baseline import train_baseline, evaluate_model
 from src.causal.audit import audit_model
@@ -24,29 +26,35 @@ def main():
     dml_model, adjusted_preds, disparity = debias_with_dml(X_train, y_train, X_test, y_test, treatment_col='sex')
     
     print("\n=== 5. Counterfactual Recourse ===")
-    # Identify a negatively classified instance
     preds = baseline.predict(X_test)
     negative_idx = X_test[preds == 0].index
-    if len(negative_idx) > 0:
-        sample_idx = negative_idx[0]
+
+    engine = StructuralRecourseEngine(baseline, X_train, ['education-num'])
+
+    # Try multiple negative samples until recourse is found
+    recourse_found = False
+    for sample_idx in negative_idx[:20]:     # try up to 20 candidates
         sample_x = X_test.loc[sample_idx]
-        print("Original Features:")
-        print(sample_x[['education-num', 'hours-per-week', 'sex']])
-        
-        # Actionable features
-        # Note: DoWhy graph changes hyphens to underscores, but baseline uses original names
-        actionable_features = ['education-num']
-        
-        # SCM uses original names from X_train
-        engine = StructuralRecourseEngine(baseline, X_train, actionable_features)
         cf, cost, action = engine.generate_recourse(sample_x)
-        print(f"\nRecourse Action: {action}")
-        print(f"Cost: {cost}")
-        if cf is not None:
-            print("Counterfactual Features:")
-            print(cf[['education-num', 'hours-per-week', 'sex']])
-        else:
-            print("No recourse found.")
+        if cf is not None and cost < float('inf'):
+            recourse_found = True
+            break
+
+    print("Original Features (negatively classified individual):")
+    print(f"  education-num  : {int(sample_x['education-num'])}")
+    print(f"  hours-per-week : {int(sample_x['hours-per-week'])}")
+    print(f"  sex (0=F,1=M)  : {int(sample_x['sex'])}")
+
+    if recourse_found:
+        print(f"\nRecourse Action : {action}")
+        print(f"Intervention Cost: {cost:.1f} unit(s)")
+        print("Counterfactual Features:")
+        print(f"  education-num  : {int(cf['education-num'])}")
+        print(f"  hours-per-week : {cf['hours-per-week']:.1f}")
+        new_pred = baseline.predict(pd.DataFrame([cf]))[0]
+        print(f"  New Prediction : {'Income > $50K [FLIPPED]' if new_pred == 1 else 'No flip'}")
+    else:
+        print("No recourse found within search range.")
 
 if __name__ == "__main__":
     main()
