@@ -48,9 +48,9 @@ class StructuralRecourseEngine:
                 cf[feature] += 1
                 cost += 1
                 
-                # Apply structural downstream effects
+                # Apply structural downstream effects (propagate causal consequence)
                 if feature == 'education-num' and 'education_num_to_hours' in self.scm:
-                    # Increase in education causes increase in hours-per-week
+                    cf = cf.astype(float)   # ensure float dtype before adding regression coef
                     cf['hours-per-week'] += self.scm['education_num_to_hours']
                 
                 pred = self.model.predict(pd.DataFrame([cf]))[0]
